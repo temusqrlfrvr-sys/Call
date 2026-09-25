@@ -1,0 +1,536 @@
+<!DOCTYPE html>
+<html lang="en" class="h-full">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Raw P2P Call App</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+        body { font-family: 'Inter', sans-serif; }
+    </style>
+</head>
+<body class="bg-slate-950 text-slate-100 h-full flex flex-col justify-between overflow-x-hidden selection:bg-indigo-500 selection:text-white">
+
+    <header class="w-full bg-slate-900/80 backdrop-blur-md border-b border-slate-800 py-4 px-6 flex justify-between items-center z-10">
+        <div class="flex items-center space-x-3">
+            <div class="w-10 h-10 rounded-xl bg-gradient-to-tr from-indigo-500 to-violet-500 flex items-center justify-center shadow-lg shadow-indigo-500/30">
+                <i class="fa-solid fa-headset text-white text-lg"></i>
+            </div>
+            <div>
+                <h1 class="font-bold text-lg tracking-tight bg-gradient-to-r from-white to-slate-400 bg-clip-text text-transparent">DirectNexus</h1>
+                <p class="text-xs text-slate-400 font-medium">Raw P2P Calling</p>
+            </div>
+        </div>
+        <div id="connection-status" class="flex items-center space-x-2 bg-slate-800/80 px-3 py-1.5 rounded-full border border-slate-700/60 text-xs font-medium text-slate-300">
+            <span class="w-2 h-2 rounded-full bg-amber-500 animate-pulse" id="status-dot"></span>
+            <span id="status-text">Connecting to signaling server...</span>
+        </div>
+    </header>
+
+    <main class="flex-1 flex flex-col items-center justify-center p-4 max-w-4xl mx-auto w-full relative">
+        
+        <!-- Custom Modal Box for Alerts (No alert() used) -->
+        <div id="custom-modal" class="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center hidden opacity-0 transition-opacity duration-300">
+            <div class="bg-slate-900 border border-slate-800 p-6 rounded-2xl max-w-sm w-full mx-4 shadow-2xl transform scale-95 transition-transform duration-300" id="modal-card">
+                <div class="w-12 h-12 rounded-full bg-rose-500/10 text-rose-400 flex items-center justify-center mb-4 text-xl">
+                    <i class="fa-solid fa-triangle-exclamation" id="modal-icon"></i>
+                </div>
+                <h3 id="modal-title" class="text-lg font-bold text-white mb-2">Notice</h3>
+                <p id="modal-message" class="text-sm text-slate-300 mb-6 leading-relaxed">Message goes here...</p>
+                <button onclick="closeModal()" class="w-full bg-indigo-600 hover:bg-indigo-500 text-white font-medium py-2.5 rounded-xl transition duration-200 shadow-lg shadow-indigo-600/30">Got it</button>
+            </div>
+        </div>
+
+        <!-- Lobby View -->
+        <div id="lobby-view" class="w-full max-w-md bg-slate-900/60 backdrop-blur-xl border border-slate-800/80 rounded-3xl p-8 shadow-2xl flex flex-col items-center space-y-6">
+            <div class="text-center space-y-2">
+                <h2 class="text-2xl font-bold tracking-tight text-white">Raw P2P Connection</h2>
+                <p class="text-sm text-slate-400">Share your 4-digit code or enter a target code to call directly.</p>
+            </div>
+
+            <!-- Your Code Box -->
+            <div class="w-full bg-slate-950/60 border border-slate-800 rounded-2xl p-5 flex flex-col items-center space-y-2">
+                <span class="text-xs font-semibold uppercase tracking-wider text-slate-400">Your 4-Digit Code</span>
+                <div id="my-code-display" class="text-4xl font-black tracking-widest text-indigo-400 font-mono">----</div>
+                <button onclick="copyMyCode()" class="text-xs text-indigo-300 hover:text-indigo-200 transition font-medium flex items-center space-x-1 mt-1">
+                    <i class="fa-regular fa-copy"></i>
+                    <span>Copy Code</span>
+                </button>
+            </div>
+
+            <div class="w-full flex items-center my-2">
+                <div class="flex-1 border-t border-slate-800"></div>
+                <span class="px-4 text-xs font-medium text-slate-400 uppercase">Or Call Someone</span>
+                <div class="flex-1 border-t border-slate-800"></div>
+            </div>
+
+            <!-- Dial Input Box -->
+            <div class="w-full space-y-3">
+                <input type="text" id="target-code-input" maxlength="4" placeholder="Enter 4-digit code" class="w-full bg-slate-950/80 border border-slate-700/80 rounded-xl px-4 py-3.5 text-center text-2xl tracking-widest font-mono text-white placeholder:text-slate-600 focus:outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20 transition">
+                <button onclick="startCall()" class="w-full bg-gradient-to-r from-indigo-600 to-violet-600 hover:from-indigo-500 hover:to-violet-500 text-white font-semibold py-3.5 rounded-xl shadow-lg shadow-indigo-600/30 transition duration-200 flex items-center justify-center space-x-2">
+                    <i class="fa-solid fa-phone"></i>
+                    <span>Start Secure Call</span>
+                </button>
+            </div>
+        </div>
+
+        <!-- Outbound Ringing View -->
+        <div id="ringing-outbound-view" class="w-full max-w-md bg-slate-900/60 backdrop-blur-xl border border-slate-800/80 rounded-3xl p-8 shadow-2xl flex flex-col items-center space-y-6 hidden">
+            <div class="relative flex items-center justify-center my-4">
+                <div class="w-24 h-24 rounded-full bg-indigo-500/20 absolute animate-ping"></div>
+                <div class="w-20 h-20 rounded-full bg-indigo-600/40 absolute animate-pulse"></div>
+                <div class="w-16 h-16 rounded-full bg-indigo-600 flex items-center justify-center text-white text-2xl shadow-xl z-10">
+                    <i class="fa-solid fa-phone-volume animate-bounce"></i>
+                </div>
+            </div>
+            <div class="text-center space-y-1">
+                <h3 class="text-xl font-bold text-white">Calling Code <span id="calling-target-display" class="text-indigo-400 font-mono">----</span></h3>
+                <p class="text-sm text-slate-400" id="outbound-status-text">Ringing receiver... <span id="outbound-timer">10</span>s</p>
+            </div>
+            <button onclick="hangUp()" class="bg-rose-600 hover:bg-rose-500 text-white font-semibold px-8 py-3 rounded-xl shadow-lg shadow-rose-600/30 transition duration-200 flex items-center space-x-2">
+                <i class="fa-solid fa-phone-slash"></i>
+                <span>Cancel Call</span>
+            </button>
+        </div>
+
+        <!-- Incoming Call View -->
+        <div id="incoming-call-view" class="w-full max-w-md bg-slate-900/80 backdrop-blur-2xl border border-indigo-500/40 rounded-3xl p-8 shadow-2xl flex flex-col items-center space-y-6 hidden ring-4 ring-indigo-500/10">
+            <div class="relative flex items-center justify-center my-4">
+                <div class="w-24 h-24 rounded-full bg-emerald-500/20 absolute animate-ping"></div>
+                <div class="w-16 h-16 rounded-full bg-emerald-600 flex items-center justify-center text-white text-2xl shadow-xl z-10">
+                    <i class="fa-solid fa-phone animate-pulse"></i>
+                </div>
+            </div>
+            <div class="text-center space-y-1">
+                <h3 class="text-xl font-bold text-white">Incoming Call!</h3>
+                <p class="text-sm text-slate-400">Caller Code: <span id="incoming-caller-display" class="text-emerald-400 font-mono font-bold text-lg">----</span></p>
+                <p class="text-xs text-amber-400/90 pt-1" id="incoming-timer">Auto-cancelling in 10s</p>
+            </div>
+            <div class="flex space-x-4 w-full">
+                <button onclick="rejectCall()" class="flex-1 bg-rose-600 hover:bg-rose-500 text-white font-semibold py-3 rounded-xl shadow-lg shadow-rose-600/30 transition duration-200 flex items-center justify-center space-x-2">
+                    <i class="fa-solid fa-phone-slash"></i>
+                    <span>Decline</span>
+                </button>
+                <button onclick="acceptCall()" class="flex-1 bg-emerald-600 hover:bg-emerald-500 text-white font-semibold py-3 rounded-xl shadow-lg shadow-emerald-600/30 transition duration-200 flex items-center justify-center space-x-2">
+                    <i class="fa-solid fa-phone"></i>
+                    <span>Accept</span>
+                </button>
+            </div>
+        </div>
+
+        <!-- Active Call View -->
+        <div id="active-call-view" class="w-full h-full flex flex-col items-center justify-center space-y-4 hidden">
+            <div class="relative w-full max-w-3xl aspect-video bg-slate-900 rounded-3xl overflow-hidden border border-slate-800 shadow-2xl flex items-center justify-center">
+                <video id="remote-video" autoplay playsinline class="w-full h-full object-cover bg-slate-950"></video>
+                <div class="absolute bottom-4 right-4 w-32 md:w-44 aspect-video bg-slate-800 rounded-xl overflow-hidden border-2 border-slate-700 shadow-lg">
+                    <video id="local-video" autoplay playsinline muted class="w-full h-full object-cover transform -scale-x-100"></video>
+                </div>
+                <div class="absolute top-4 left-4 bg-slate-950/60 backdrop-blur-md px-3 py-1.5 rounded-full border border-slate-800 text-xs font-mono font-semibold text-slate-200 flex items-center space-x-2">
+                    <span class="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+                    <span id="call-timer">00:00</span>
+                </div>
+            </div>
+
+            <div class="flex items-center space-x-4 bg-slate-900/80 backdrop-blur-md px-6 py-3 rounded-2xl border border-slate-800 shadow-xl">
+                <button onclick="toggleAudio()" id="mic-btn" class="w-12 h-12 rounded-full bg-slate-800 hover:bg-slate-700 text-white flex items-center justify-center transition border border-slate-700">
+                    <i class="fa-solid fa-microphone text-sm"></i>
+                </button>
+                <button onclick="toggleVideo()" id="cam-btn" class="w-12 h-12 rounded-full bg-slate-800 hover:bg-slate-700 text-white flex items-center justify-center transition border border-slate-700">
+                    <i class="fa-solid fa-video text-sm"></i>
+                </button>
+                <button onclick="hangUp()" class="w-14 h-14 rounded-full bg-rose-600 hover:bg-rose-500 text-white flex items-center justify-center shadow-lg shadow-rose-600/30 transition">
+                    <i class="fa-solid fa-phone-slash text-lg"></i>
+                </button>
+            </div>
+        </div>
+
+    </main>
+
+    <footer class="w-full py-4 text-center text-xs text-slate-400 border-t border-slate-900">
+        Raw WebRTC P2P Calling • Direct Signaling WebSocket Backend
+    </footer>
+
+    <script>
+        let ws = null;
+        let myCode = "";
+        let targetCode = "";
+        let peerConnection = null;
+        let localStream = null;
+        let timeoutTimer = null;
+        let callDurationTimer = null;
+        let callSeconds = 0;
+        let isAudioMuted = false;
+        let isVideoMuted = false;
+        let pendingCandidates = [];
+
+        const rtcConfig = {
+            iceServers: [
+                { urls: 'stun:stun.l.google.com:19302' },
+                { urls: 'stun:stun1.l.google.com:19302' },
+                { urls: 'stun:stun2.l.google.com:19302' }
+            ]
+        };
+
+        window.showModal = function(title, message, isError = true) {
+            document.getElementById('modal-title').innerText = title;
+            document.getElementById('modal-message').innerText = message;
+            const icon = document.getElementById('modal-icon');
+            icon.className = isError ? "fa-solid fa-triangle-exclamation" : "fa-solid fa-circle-check";
+            const modal = document.getElementById('custom-modal');
+            const card = document.getElementById('modal-card');
+            modal.classList.remove('hidden');
+            setTimeout(() => {
+                modal.classList.remove('opacity-0');
+                card.classList.remove('scale-95');
+            }, 10);
+        }
+
+        window.closeModal = function() {
+            const modal = document.getElementById('custom-modal');
+            const card = document.getElementById('modal-card');
+            modal.classList.add('opacity-0');
+            card.classList.add('scale-95');
+            setTimeout(() => {
+                modal.classList.add('hidden');
+            }, 300);
+        }
+
+        // Connect to public WebSocket signaling echo/relay server
+        function initWebSocket() {
+            // Load or generate permanent code for this device
+            getOrInitDeviceCode();
+            connectSignaling();
+        }
+
+        function connectSignaling() {
+            // Using a public production-ready WebSocket relay for signaling channel
+            ws = new WebSocket('wss://free.blr2.piesocket.com/v3/p2p_direct_call_channel?api_key=VCXCEuvhGcBDP7XhiJJUDvR1e1D3eiVjgZ9VRiaV&notify_self=0');
+
+            ws.onopen = () => {
+                document.getElementById('status-dot').className = "w-2 h-2 rounded-full bg-emerald-500";
+                document.getElementById('status-text').innerText = "Connected to signaling relay";
+            };
+
+            ws.onmessage = async (event) => {
+                try {
+                    const msg = JSON.parse(event.data);
+                    // Filter messages intended for our 4-digit code
+                    if (msg.target === myCode) {
+                        handleSignalingMessage(msg);
+                    }
+                } catch (e) {
+                    // Ignore non-json frames
+                }
+            };
+
+            ws.onerror = () => {
+                document.getElementById('status-dot').className = "w-2 h-2 rounded-full bg-rose-500";
+                document.getElementById('status-text').innerText = "Signaling connection error";
+            };
+
+            ws.onclose = () => {
+                document.getElementById('status-dot').className = "w-2 h-2 rounded-full bg-amber-500";
+                document.getElementById('status-text').innerText = "Reconnecting signaling...";
+                setTimeout(connectSignaling, 3000);
+            };
+        }
+
+        function getOrInitDeviceCode() {
+            // Check if a permanent code is already stored in localStorage for this device
+            let storedCode = localStorage.getItem('directnexus_device_code');
+            if (storedCode && storedCode.length === 4 && !isNaN(storedCode)) {
+                myCode = storedCode;
+            } else {
+                // Generate a new 4-digit code and save it permanently for this browser profile/device
+                myCode = Math.floor(1000 + Math.random() * 9000).toString();
+                localStorage.setItem('directnexus_device_code', myCode);
+            }
+            document.getElementById('my-code-display').innerText = myCode;
+        }
+
+        window.copyMyCode = function() {
+            const tempInput = document.createElement('input');
+            tempInput.value = myCode;
+            document.body.appendChild(tempInput);
+            tempInput.select();
+            document.execCommand('copy');
+            document.body.removeChild(tempInput);
+            showModal("Copied!", "Your 4-digit code has been copied to clipboard.", false);
+        }
+
+        function sendSignal(payload) {
+            if (ws && ws.readyState === WebSocket.OPEN) {
+                ws.send(JSON.stringify(payload));
+            }
+        }
+
+        window.startCall = async function() {
+            targetCode = document.getElementById('target-code-input').value.trim();
+            if (targetCode.length !== 4 || isNaN(targetCode)) {
+                showModal("Invalid Code", "Please enter a valid 4-digit code.");
+                return;
+            }
+            if (targetCode === myCode) {
+                showModal("Invalid Target", "You cannot call your own code.");
+                return;
+            }
+
+            // Switch to outbound ringing view
+            document.getElementById('lobby-view').classList.add('hidden');
+            document.getElementById('calling-target-display').innerText = targetCode;
+            document.getElementById('ringing-outbound-view').classList.remove('hidden');
+
+            // 10-second timeout mechanism
+            let timeLeft = 10;
+            document.getElementById('outbound-timer').innerText = timeLeft;
+            
+            timeoutTimer = setInterval(() => {
+                timeLeft--;
+                document.getElementById('outbound-timer').innerText = timeLeft;
+                if (timeLeft <= 0) {
+                    clearInterval(timeoutTimer);
+                    showModal("Call Timeout", "The receiver did not answer within 10 seconds.");
+                    sendSignal({ target: targetCode, sender: myCode, type: 'TIMEOUT_END' });
+                    hangUp();
+                }
+            }, 1000);
+
+            // Initialize WebRTC as Caller (Offer)
+            await initPeerConnection(true);
+        }
+
+        async function handleSignalingMessage(msg) {
+            if (msg.type === 'CALL_OFFER') {
+                // Incoming call received
+                window.incomingCallerCode = msg.sender;
+                window.incomingOffer = msg.offer;
+                triggerIncomingCallUI(msg.sender);
+            } else if (msg.type === 'CALL_ANSWER') {
+                if (timeoutTimer) clearInterval(timeoutTimer);
+                const remoteDesc = new RTCSessionDescription(msg.answer);
+                await peerConnection.setRemoteDescription(remoteDesc);
+                processPendingCandidates();
+
+                document.getElementById('ringing-outbound-view').classList.add('hidden');
+                document.getElementById('active-call-view').classList.remove('hidden');
+                startCallTimer();
+            } else if (msg.type === 'ICE_CANDIDATE') {
+                if (msg.candidate) {
+                    const candidate = new RTCIceCandidate(msg.candidate);
+                    if (peerConnection && peerConnection.remoteDescription) {
+                        await peerConnection.addIceCandidate(candidate).catch(() => {});
+                    } else {
+                        pendingCandidates.push(candidate);
+                    }
+                }
+            } else if (msg.type === 'CALL_REJECTED') {
+                if (timeoutTimer) clearInterval(timeoutTimer);
+                showModal("Call Declined", "The receiver declined your call.");
+                hangUp();
+            } else if (msg.type === 'END_CALL' || msg.type === 'TIMEOUT_END') {
+                showModal("Call Ended", "The other participant ended the call.");
+                hangUp();
+            }
+        }
+
+        function triggerIncomingCallUI(callerCode) {
+            document.getElementById('incoming-caller-display').innerText = callerCode;
+            document.getElementById('lobby-view').classList.add('hidden');
+            document.getElementById('incoming-call-view').classList.remove('hidden');
+
+            let timeLeft = 10;
+            document.getElementById('incoming-timer').innerText = `Auto-cancelling in ${timeLeft}s`;
+            
+            timeoutTimer = setInterval(() => {
+                timeLeft--;
+                document.getElementById('incoming-timer').innerText = `Auto-cancelling in ${timeLeft}s`;
+                if (timeLeft <= 0) {
+                    clearInterval(timeoutTimer);
+                    rejectCall();
+                }
+            }, 1000);
+        }
+
+        window.acceptCall = async function() {
+            if (timeoutTimer) clearInterval(timeoutTimer);
+            document.getElementById('incoming-call-view').classList.add('hidden');
+            document.getElementById('active-call-view').classList.remove('hidden');
+
+            targetCode = window.incomingCallerCode;
+            await initPeerConnection(false);
+
+            const remoteDesc = new RTCSessionDescription(window.incomingOffer);
+            await peerConnection.setRemoteDescription(remoteDesc);
+            processPendingCandidates();
+
+            const answer = await peerConnection.createAnswer();
+            await peerConnection.setLocalDescription(answer);
+
+            sendSignal({
+                target: targetCode,
+                sender: myCode,
+                type: 'CALL_ANSWER',
+                answer: answer
+            });
+
+            startCallTimer();
+        }
+
+        window.rejectCall = function() {
+            if (timeoutTimer) clearInterval(timeoutTimer);
+            document.getElementById('incoming-call-view').classList.add('hidden');
+            if (window.incomingCallerCode) {
+                sendSignal({
+                    target: window.incomingCallerCode,
+                    sender: myCode,
+                    type: 'CALL_REJECTED'
+                });
+            }
+            resetAppToLobby();
+        }
+
+        async function initPeerConnection(isCaller) {
+            try {
+                localStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+                document.getElementById('local-video').srcObject = localStream;
+            } catch (err) {
+                showModal("Camera/Mic Error", "Could not access camera or microphone. Please check permissions.");
+                resetAppToLobby();
+                return;
+            }
+
+            peerConnection = new RTCPeerConnection(rtcConfig);
+
+            localStream.getTracks().forEach(track => {
+                peerConnection.addTrack(track, localStream);
+            });
+
+            peerConnection.ontrack = (event) => {
+                const remoteVideo = document.getElementById('remote-video');
+                if (remoteVideo.srcObject !== event.streams[0]) {
+                    remoteVideo.srcObject = event.streams[0];
+                }
+            };
+
+            peerConnection.onicecandidate = (event) => {
+                if (event.candidate) {
+                    sendSignal({
+                        target: isCaller ? targetCode : window.incomingCallerCode,
+                        sender: myCode,
+                        type: 'ICE_CANDIDATE',
+                        candidate: event.candidate
+                    });
+                }
+            };
+
+            if (isCaller) {
+                const offer = await peerConnection.createOffer();
+                await peerConnection.setLocalDescription(offer);
+
+                sendSignal({
+                    target: targetCode,
+                    sender: myCode,
+                    type: 'CALL_OFFER',
+                    offer: offer
+                });
+            }
+        }
+
+        function processPendingCandidates() {
+            while (pendingCandidates.length > 0) {
+                const candidate = pendingCandidates.shift();
+                peerConnection.addIceCandidate(candidate).catch(() => {});
+            }
+        }
+
+        window.hangUp = function() {
+            if (timeoutTimer) clearInterval(timeoutTimer);
+            if (callDurationTimer) clearInterval(callDurationTimer);
+
+            if (targetCode) {
+                sendSignal({
+                    target: targetCode,
+                    sender: myCode,
+                    type: 'END_CALL'
+                });
+            }
+            if (window.incomingCallerCode) {
+                sendSignal({
+                    target: window.incomingCallerCode,
+                    sender: myCode,
+                    type: 'END_CALL'
+                });
+            }
+
+            if (peerConnection) {
+                peerConnection.close();
+                peerConnection = null;
+            }
+
+            if (localStream) {
+                localStream.getTracks().forEach(track => track.stop());
+                localStream = null;
+            }
+
+            resetAppToLobby();
+        }
+
+        function resetAppToLobby() {
+            if (timeoutTimer) clearInterval(timeoutTimer);
+            if (callDurationTimer) clearInterval(callDurationTimer);
+            callSeconds = 0;
+            targetCode = "";
+            window.incomingCallerCode = null;
+            pendingCandidates = [];
+
+            document.getElementById('ringing-outbound-view').classList.add('hidden');
+            document.getElementById('incoming-call-view').classList.add('hidden');
+            document.getElementById('active-call-view').classList.add('hidden');
+            document.getElementById('lobby-view').classList.remove('hidden');
+            document.getElementById('target-code-input').value = '';
+            
+            document.getElementById('remote-video').srcObject = null;
+            document.getElementById('local-video').srcObject = null;
+        }
+
+        function startCallTimer() {
+            callSeconds = 0;
+            if (callDurationTimer) clearInterval(callDurationTimer);
+            callDurationTimer = setInterval(() => {
+                callSeconds++;
+                const mins = Math.floor(callSeconds / 60).toString().padStart(2, '0');
+                const secs = (callSeconds % 60).toString().padStart(2, '0');
+                document.getElementById('call-timer').innerText = `${mins}:${secs}`;
+            }, 1000);
+        }
+
+        window.toggleAudio = function() {
+            if (!localStream) return;
+            isAudioMuted = !isAudioMuted;
+            localStream.getAudioTracks()[0].enabled = !isAudioMuted;
+            const btn = document.getElementById('mic-btn');
+            btn.className = isAudioMuted 
+                ? "w-12 h-12 rounded-full bg-rose-600 hover:bg-rose-500 text-white flex items-center justify-center transition border border-rose-500" 
+                : "w-12 h-12 rounded-full bg-slate-800 hover:bg-slate-700 text-white flex items-center justify-center transition border border-slate-700";
+            btn.innerHTML = isAudioMuted ? '<i class="fa-solid fa-microphone-slash text-sm"></i>' : '<i class="fa-solid fa-microphone text-sm"></i>';
+        }
+
+        window.toggleVideo = function() {
+            if (!localStream) return;
+            isVideoMuted = !isVideoMuted;
+            localStream.getVideoTracks()[0].enabled = !isVideoMuted;
+            const btn = document.getElementById('cam-btn');
+            btn.className = isVideoMuted 
+                ? "w-12 h-12 rounded-full bg-rose-600 hover:bg-rose-500 text-white flex items-center justify-center transition border border-rose-500" 
+                : "w-12 h-12 rounded-full bg-slate-800 hover:bg-slate-700 text-white flex items-center justify-center transition border border-slate-700";
+            btn.innerHTML = isVideoMuted ? '<i class="fa-solid fa-video-slash text-sm"></i>' : '<i class="fa-solid fa-video text-sm"></i>';
+        }
+
+        window.onload = function() {
+            initWebSocket();
+        }
+    </script>
+</body>
+</html>
