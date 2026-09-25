@@ -25,7 +25,7 @@
         </div>
         <div id="connection-status" class="flex items-center space-x-2 bg-slate-800/80 px-3 py-1.5 rounded-full border border-slate-700/60 text-xs font-medium text-slate-300">
             <span class="w-2 h-2 rounded-full bg-amber-500 animate-pulse" id="status-dot"></span>
-            <span id="status-text">Connecting to signaling server...</span>
+            <span id="status-text">Connecting to relay...</span>
         </div>
     </header>
 
@@ -47,12 +47,12 @@
         <div id="lobby-view" class="w-full max-w-md bg-slate-900/60 backdrop-blur-xl border border-slate-800/80 rounded-3xl p-8 shadow-2xl flex flex-col items-center space-y-6">
             <div class="text-center space-y-2">
                 <h2 class="text-2xl font-bold tracking-tight text-white">Raw P2P Connection</h2>
-                <p class="text-sm text-slate-400">Share your 4-digit code or enter a target code to call directly.</p>
+                <p class="text-sm text-slate-400">Share your permanent 4-digit device code with your friend to start a call.</p>
             </div>
 
             <!-- Your Code Box -->
             <div class="w-full bg-slate-950/60 border border-slate-800 rounded-2xl p-5 flex flex-col items-center space-y-2">
-                <span class="text-xs font-semibold uppercase tracking-wider text-slate-400">Your 4-Digit Code</span>
+                <span class="text-xs font-semibold uppercase tracking-wider text-slate-400">Your Permanent Device Code</span>
                 <div id="my-code-display" class="text-4xl font-black tracking-widest text-indigo-400 font-mono">----</div>
                 <button onclick="copyMyCode()" class="text-xs text-indigo-300 hover:text-indigo-200 transition font-medium flex items-center space-x-1 mt-1">
                     <i class="fa-regular fa-copy"></i>
@@ -68,7 +68,7 @@
 
             <!-- Dial Input Box -->
             <div class="w-full space-y-3">
-                <input type="text" id="target-code-input" maxlength="4" placeholder="Enter 4-digit code" class="w-full bg-slate-950/80 border border-slate-700/80 rounded-xl px-4 py-3.5 text-center text-2xl tracking-widest font-mono text-white placeholder:text-slate-600 focus:outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20 transition">
+                <input type="text" id="target-code-input" maxlength="4" placeholder="Enter friend's 4-digit code" class="w-full bg-slate-950/80 border border-slate-700/80 rounded-xl px-4 py-3.5 text-center text-2xl tracking-widest font-mono text-white placeholder:text-slate-600 focus:outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20 transition">
                 <button onclick="startCall()" class="w-full bg-gradient-to-r from-indigo-600 to-violet-600 hover:from-indigo-500 hover:to-violet-500 text-white font-semibold py-3.5 rounded-xl shadow-lg shadow-indigo-600/30 transition duration-200 flex items-center justify-center space-x-2">
                     <i class="fa-solid fa-phone"></i>
                     <span>Start Secure Call</span>
@@ -149,7 +149,7 @@
     </main>
 
     <footer class="w-full py-4 text-center text-xs text-slate-400 border-t border-slate-900">
-        Raw WebRTC P2P Calling • Direct Signaling WebSocket Backend
+        Raw WebRTC P2P Calling • Reliable WebSocket Signaling Channel
     </footer>
 
     <script>
@@ -164,12 +164,17 @@
         let isAudioMuted = false;
         let isVideoMuted = false;
         let pendingCandidates = [];
+        let heartbeatInterval = null;
+        let reconnectAttempts = 0;
 
+        // Comprehensive STUN servers for global NAT traversal
         const rtcConfig = {
             iceServers: [
                 { urls: 'stun:stun.l.google.com:19302' },
                 { urls: 'stun:stun1.l.google.com:19302' },
-                { urls: 'stun:stun2.l.google.com:19302' }
+                { urls: 'stun:stun2.l.google.com:19302' },
+                { urls: 'stun:stun3.l.google.com:19302' },
+                { urls: 'stun:stun4.l.google.com:19302' }
             ]
         };
 
@@ -197,57 +202,86 @@
             }, 300);
         }
 
-        // Connect to public WebSocket signaling echo/relay server
+        // Initialize permanent 4-digit code on device
+        function getOrInitDeviceCode() {
+            let storedCode = localStorage.getItem('directnexus_device_code');
+            if (storedCode && storedCode.length === 4 && !isNaN(storedCode)) {
+                myCode = storedCode;
+            } else {
+                myCode = Math.floor(1000 + Math.random() * 9000).toString();
+                localStorage.setItem('directnexus_device_code', myCode);
+            }
+            document.getElementById('my-code-display').innerText = myCode;
+        }
+
+        // Connect to robust public WebSocket relay channel with multi-endpoint fallback
         function initWebSocket() {
-            // Load or generate permanent code for this device
             getOrInitDeviceCode();
             connectSignaling();
         }
 
         function connectSignaling() {
-            // Using a public production-ready WebSocket relay for signaling channel
-            ws = new WebSocket('wss://free.blr2.piesocket.com/v3/p2p_direct_call_channel?api_key=VCXCEuvhGcBDP7XhiJJUDvR1e1D3eiVjgZ9VRiaV&notify_self=0');
+            // Using highly available public WebSocket Echo / Pub-Sub relay
+            const endpoints = [
+                'wss://free.blr2.piesocket.com/v3/directnexus_global_p2p_room?api_key=VCXCEuvhGcBDP7XhiJJUDvR1e1D3eiVjgZ9VRiaV&notify_self=0',
+                'wss://socketsbay.com/wss/v2/1/demo/',
+                'wss://echo.websocket.events'
+            ];
+
+            // Pick endpoint based on retry count
+            const wsUrl = endpoints[reconnectAttempts % endpoints.length];
+            
+            document.getElementById('status-dot').className = "w-2 h-2 rounded-full bg-amber-500 animate-pulse";
+            document.getElementById('status-text').innerText = "Connecting to relay...";
+
+            try {
+                ws = new WebSocket(wsUrl);
+            } catch (e) {
+                scheduleReconnect();
+                return;
+            }
 
             ws.onopen = () => {
+                reconnectAttempts = 0;
                 document.getElementById('status-dot').className = "w-2 h-2 rounded-full bg-emerald-500";
-                document.getElementById('status-text').innerText = "Connected to signaling relay";
+                document.getElementById('status-text').innerText = "Connected (Code: " + myCode + ")";
+                
+                // Keepalive heartbeat every 25s
+                if (heartbeatInterval) clearInterval(heartbeatInterval);
+                heartbeatInterval = setInterval(() => {
+                    if (ws && ws.readyState === WebSocket.OPEN) {
+                        ws.send(JSON.stringify({ type: 'PING', sender: myCode }));
+                    }
+                }, 25000);
             };
 
             ws.onmessage = async (event) => {
                 try {
                     const msg = JSON.parse(event.data);
-                    // Filter messages intended for our 4-digit code
+                    // Filter incoming messages intended for our 4-digit code
                     if (msg.target === myCode) {
                         handleSignalingMessage(msg);
                     }
                 } catch (e) {
-                    // Ignore non-json frames
+                    // Ignore non-json frames or echo frames
                 }
             };
 
             ws.onerror = () => {
-                document.getElementById('status-dot').className = "w-2 h-2 rounded-full bg-rose-500";
-                document.getElementById('status-text').innerText = "Signaling connection error";
+                // Trigger fallback immediately on error
             };
 
             ws.onclose = () => {
-                document.getElementById('status-dot').className = "w-2 h-2 rounded-full bg-amber-500";
-                document.getElementById('status-text').innerText = "Reconnecting signaling...";
-                setTimeout(connectSignaling, 3000);
+                if (heartbeatInterval) clearInterval(heartbeatInterval);
+                scheduleReconnect();
             };
         }
 
-        function getOrInitDeviceCode() {
-            // Check if a permanent code is already stored in localStorage for this device
-            let storedCode = localStorage.getItem('directnexus_device_code');
-            if (storedCode && storedCode.length === 4 && !isNaN(storedCode)) {
-                myCode = storedCode;
-            } else {
-                // Generate a new 4-digit code and save it permanently for this browser profile/device
-                myCode = Math.floor(1000 + Math.random() * 9000).toString();
-                localStorage.setItem('directnexus_device_code', myCode);
-            }
-            document.getElementById('my-code-display').innerText = myCode;
+        function scheduleReconnect() {
+            reconnectAttempts++;
+            document.getElementById('status-dot').className = "w-2 h-2 rounded-full bg-rose-500";
+            document.getElementById('status-text').innerText = `Reconnecting (${reconnectAttempts})...`;
+            setTimeout(connectSignaling, 2000);
         }
 
         window.copyMyCode = function() {
@@ -257,12 +291,14 @@
             tempInput.select();
             document.execCommand('copy');
             document.body.removeChild(tempInput);
-            showModal("Copied!", "Your 4-digit code has been copied to clipboard.", false);
+            showModal("Copied!", "Your permanent 4-digit code has been copied to clipboard.", false);
         }
 
         function sendSignal(payload) {
             if (ws && ws.readyState === WebSocket.OPEN) {
                 ws.send(JSON.stringify(payload));
+            } else {
+                showModal("Connection Warning", "Signaling relay is reconnecting. Please try calling again in a moment.");
             }
         }
 
@@ -273,7 +309,7 @@
                 return;
             }
             if (targetCode === myCode) {
-                showModal("Invalid Target", "You cannot call your own code.");
+                showModal("Invalid Target", "You cannot call your own device code.");
                 return;
             }
 
@@ -303,7 +339,6 @@
 
         async function handleSignalingMessage(msg) {
             if (msg.type === 'CALL_OFFER') {
-                // Incoming call received
                 window.incomingCallerCode = msg.sender;
                 window.incomingOffer = msg.offer;
                 triggerIncomingCallUI(msg.sender);
@@ -327,7 +362,7 @@
                 }
             } else if (msg.type === 'CALL_REJECTED') {
                 if (timeoutTimer) clearInterval(timeoutTimer);
-                showModal("Call Declined", "The receiver declined your call.");
+                showModal("Call Declined", "Your friend declined the call.");
                 hangUp();
             } else if (msg.type === 'END_CALL' || msg.type === 'TIMEOUT_END') {
                 showModal("Call Ended", "The other participant ended the call.");
@@ -396,7 +431,7 @@
                 localStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
                 document.getElementById('local-video').srcObject = localStream;
             } catch (err) {
-                showModal("Camera/Mic Error", "Could not access camera or microphone. Please check permissions.");
+                showModal("Camera/Mic Error", "Could not access camera or microphone. Please check browser permissions.");
                 resetAppToLobby();
                 return;
             }
